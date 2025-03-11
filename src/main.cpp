@@ -37,11 +37,23 @@ struct SysSets
   uint32_t clockTimer = 0;
   uint32_t uptimeMins = 0;
   uint8_t longTimer = 0;
+  uint8_t hourTimer = 0;
+  uint8_t min = 0;
+  uint8_t hour = 0;
+  int day = 0;
 
   bool heater = 0;
   bool vent = 0;
 
 } sysSets;
+
+struct SysLog{
+
+  uint8_t month = 0;
+  uint8_t length = 0;
+  uint8_t threeHourPower = 0;
+  
+} sysLog;
 
 struct MenuPage
 {
@@ -66,6 +78,8 @@ struct Climate
 
 //System
 Climate getClimate();
+void sysClock();
+void sysLogger();
 
 //Power
 void watchPowerTriggers();
@@ -131,12 +145,12 @@ void controlHeater(){
 
 void controlVent(){
   
-  if(!sysSets.vent && sysSets.uptimeMins - sysSets.longTimer > sysSets.ventPeriod){
+  if(!sysSets.vent && sysSets.uptimeMins - sysSets.longTimer == sysSets.ventPeriod){
     
     sysSets.longTimer = sysSets.uptimeMins;
     sysSets.vent = 1;
   
-  } else if(!sysSets.heater && sysSets.vent && sysSets.uptimeMins - sysSets.longTimer > sysSets.ventDuration){
+  } else if(!sysSets.heater && sysSets.vent && sysSets.uptimeMins - sysSets.longTimer == sysSets.ventDuration){
 
     sysSets.vent = 0;
     sysSets.longTimer = sysSets.uptimeMins;
@@ -159,6 +173,60 @@ Climate getClimate()
   tempHum.temp = (t * 100) / 10;
 
   return tempHum;
+}
+
+void sysLogger(){
+
+  //раз в 2 часа средние показания записываются
+  if(sysSets.hour - sysSets.hourTimer == 3){
+    
+    sysSets.hourTimer = sysSets.hour;
+
+    //30 дней, 8 записей в день
+    if(sysLog.length == 240){
+      sysLog.month++;
+
+      if (sysLog.month > 3){
+        sysLog.month = 0;
+        sysSets.uptimeMins = 0;  
+      }
+
+      sysLog.length = 0;
+    }
+
+    //записать в еепром. месяц, колво 3-часовых записей, [записи]
+    sysLog.length++;
+    EEPROM.put(8, sysLog.month);
+    EEPROM.put(9, sysLog.length);
+    EEPROM.put(9 + sysLog.length + (240 * sysLog.month), sysLog.threeHourPower);
+    
+
+  }
+
+  return;
+
+}
+
+void sysClock(){
+
+  if(millis() - sysSets.clockTimer > 60000){
+
+    sysSets.uptimeMins++;
+    sysSets.clockTimer = millis();
+
+    //счет часов и минут
+    sysSets.hour = sysSets.uptimeMins / 60;
+    sysSets.min = sysSets.uptimeMins - (60 * sysSets.hour);
+    sysSets.day = sysSets.hour / 24;
+    sysSets.hour = sysSets.hour - (24 * sysSets.day);
+
+    //подсчет средних затрат ээ
+    if(sysSets.heater) sysLog.threeHourPower = (sysLog.threeHourPower + sysSets.heatPower) / sysSets.uptimeMins;
+
+  }
+
+
+  return;
 }
 
 int menuPageSetup(MenuPage page)
@@ -245,9 +313,9 @@ void mainScreen(){
 
     scrstr = "Hold ";
     scrstr += sysSets.holdingTemp; 
-    scrstr += "C at ";
+    scrstr += "C at P=";
     scrstr += sysSets.heatPower;
-    scrstr += "%pwr";
+    scrstr += "%";
 
     lcd.print(scrstr);
     
@@ -273,21 +341,15 @@ void mainScreen(){
     }
 
     lcd.setCursor(0, 3);
-    scrstr = "uptm: ";
-    uint8_t min;
-    uint8_t hour;
-    uint8_t day;
-    
-    hour = sysSets.uptimeMins / 60;
-    min = sysSets.uptimeMins - (60 * hour);
-    day = hour / 24;
-    hour = hour - (24 * day);
-
-    scrstr += day;
+    scrstr = "log: ";
+   
+    scrstr += sysSets.day;
     scrstr += " ";
-    scrstr += hour;
+    scrstr += (sysSets.hour < 10)? "0" : "";
+    scrstr += sysSets.hour;
     scrstr += ":";
-    scrstr += min;
+    scrstr += (sysSets.hour < 10)? "0" : "";
+    scrstr += sysSets.min;
 
     lcd.print(scrstr);
   
@@ -488,6 +550,15 @@ void setup()
   EEPROM.get(4, sysSets.ventDuration);
   EEPROM.get(6, sysSets.ventPeriod);
 
+  //загрузка отработанного времени
+
+  //сделать пункт меню со сбросом лога
+  //EEPROM.put(8, 0);
+  //EEPROM.put(9, 0);
+  EEPROM.get(8, sysLog.month);
+  EEPROM.get(9, sysLog.length);
+  sysSets.uptimeMins = (sysLog.length * 180) + (sysLog.month * 43200);
+
 }
 
 void loop()
@@ -497,11 +568,9 @@ void loop()
 
   GUIBase();
   watchPowerTriggers();
+  sysClock();
 
-  if(millis() - sysSets.clockTimer > 60000){
-    sysSets.uptimeMins++;
-    sysSets.clockTimer = millis();
-  }
+  
 
   if(millis() - sysSets.probeTimer > 2000){
     sysSets.probeTimer = millis();
