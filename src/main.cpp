@@ -28,6 +28,7 @@ struct SysSets
   uint8_t ventDuration = 0;
   uint8_t ventPeriod = 0;
   uint8_t heatPower = 100;
+  uint8_t tempDelta = 10;
 
   uint32_t probeTimer = 0;
   uint32_t screenTimer = 0;
@@ -131,7 +132,7 @@ void controlHeater(){
   
   //если заданное значение на градус больше фактического
   // 27 * 10 > 258 + 10 (25.8 + 1)
-  if(!sysSets.heater && sysSets.holdingTemp * 10 > globalClimate.temp + 10){
+  if(!sysSets.heater && sysSets.holdingTemp * 10 > globalClimate.temp + sysSets.tempDelta){
     
     //обогреватель и вентилятор включить
     sysSets.heater = 1;
@@ -141,6 +142,7 @@ void controlHeater(){
     
     sysSets.heater = 0;
     sysSets.vent = 0;
+    sysSets.longTimer = sysSets.uptimeMins;
 
   }
 
@@ -204,9 +206,9 @@ void sysLogger(){
 
     //записать в еепром. месяц, колво 3-часовых записей, [записи]
     sysLog.length++;
-    EEPROM.put(8, sysLog.month);
-    EEPROM.put(9, sysLog.length);
-    EEPROM.put(9 + sysLog.length + (240 * sysLog.month), sysLog.threeHourPower);
+    EEPROM.write(8, sysLog.month);
+    EEPROM.write(9, sysLog.length);
+    EEPROM.write(9 + sysLog.length + (240 * sysLog.month), sysLog.threeHourPower);
 
   }
 
@@ -225,7 +227,7 @@ void logToSerial(){
 
   for(int i = 10; i < bytesToRead; i++){
     uint8_t r;
-    EEPROM.get(i, r);
+    r = EEPROM.read(i);
     scrstr += r;
     scrstr += " ";
   }
@@ -458,7 +460,7 @@ void GUIBase(){
 
   } else if (sysSets.inmenu == 1){
     // главное меню - лист пунктов
-    String menu[] = {"Temp", "Heater power", "Vent duration", "Vent period"};
+    String menu[] = {"Temp", "Heater power", "Temp delta", "Vent duration", "Vent period"};
     int cnt = sizeof(menu) / sizeof(menu[0]);
     int enteredMenu = menuList(menu, cnt);
     if (enteredMenu != -1)
@@ -478,7 +480,7 @@ void GUIBase(){
   
     if (settedVal != -1){
       sysSets.holdingTemp = settedVal;
-      EEPROM.put(0, sysSets.holdingTemp);  
+      EEPROM.write(0, sysSets.holdingTemp);  
     }
   
   } else if (sysSets.inmenu == 11)
@@ -495,11 +497,28 @@ void GUIBase(){
     
     if (settedVal != -1){
       sysSets.heatPower = settedVal;
-      EEPROM.put(2, sysSets.heatPower);  
+      EEPROM.write(1, sysSets.heatPower);  
+    }
+
+  } else if (sysSets.inmenu == 12)
+  {
+    // Длит вентилятора
+    MenuPage temp;
+    temp.txt = "Temperature delta, C (x0.1)";
+    temp.nextInmenu = 1;
+    temp.prevInmenu = 1;
+    temp.initialV[0] = 1;
+    temp.initialV[1] = sysSets.tempDelta;
+    temp.initialV[2] = 100;
+    int settedVal = menuPageSetup(temp);
+    
+    if (settedVal != -1){
+      sysSets.tempDelta = settedVal;
+      EEPROM.write(2, sysSets.tempDelta);  
     }
 
   }
-  else if (sysSets.inmenu == 12)
+  else if (sysSets.inmenu == 13)
   {
     // Длит вентилятора
     MenuPage temp;
@@ -513,10 +532,10 @@ void GUIBase(){
     
     if (settedVal != -1){
       sysSets.ventDuration = settedVal;
-      EEPROM.put(4, sysSets.ventDuration);  
+      EEPROM.write(3, sysSets.ventDuration);  
     }
   }
-  else if (sysSets.inmenu == 13)
+  else if (sysSets.inmenu == 14)
   {
     // Период вентилятора
     MenuPage temp;
@@ -530,7 +549,7 @@ void GUIBase(){
     
     if (settedVal != -1){
       sysSets.ventPeriod = settedVal;
-      EEPROM.put(6, sysSets.ventPeriod);  
+      EEPROM.write(4, sysSets.ventPeriod);  
     }
 
   }
@@ -576,18 +595,19 @@ void setup()
   buttDown.toggled();
 
   //загрузка сохраненных настроек
-  EEPROM.get(0, sysSets.holdingTemp);
-  EEPROM.get(2, sysSets.heatPower);
-  EEPROM.get(4, sysSets.ventDuration);
-  EEPROM.get(6, sysSets.ventPeriod);
+  sysSets.holdingTemp = EEPROM.read(0);
+  sysSets.heatPower = EEPROM.read(1);
+  sysSets.tempDelta = EEPROM.read(2);
+  sysSets.ventDuration = EEPROM.read(3);
+  sysSets.ventPeriod = EEPROM.read(4);
 
   //загрузка отработанного времени
 
   //сделать пункт меню со сбросом лога
   //EEPROM.put(8, 0);
   //EEPROM.put(9, 0);
-  EEPROM.get(8, sysLog.month);
-  EEPROM.get(9, sysLog.length);
+  sysLog.month = EEPROM.read(8);
+  sysLog.length = EEPROM.read(9);
   sysSets.uptimeMins = (sysLog.length * 180) + (sysLog.month * 43200);
 
   delay(1000);
