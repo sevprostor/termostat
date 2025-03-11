@@ -80,6 +80,7 @@ struct Climate
 Climate getClimate();
 void sysClock();
 void sysLogger();
+void logToSerial();
 
 //Power
 void watchPowerTriggers();
@@ -178,7 +179,7 @@ Climate getClimate()
 void sysLogger(){
 
   //раз в 2 часа средние показания записываются
-  if(sysSets.hour - sysSets.hourTimer == 3){
+  if(sysSets.hour - sysSets.hourTimer == 2){
     
     sysSets.hourTimer = sysSets.hour;
 
@@ -199,11 +200,31 @@ void sysLogger(){
     EEPROM.put(8, sysLog.month);
     EEPROM.put(9, sysLog.length);
     EEPROM.put(9 + sysLog.length + (240 * sysLog.month), sysLog.threeHourPower);
-    
 
   }
 
   return;
+
+}
+
+void logToSerial(){
+  int bytesToRead;
+  bytesToRead = 10 + (sysLog.length + (240 * sysLog.month));
+  String scrstr = "Logged ";
+  scrstr += sysLog.month;
+  scrstr += " month, ";
+  scrstr += sysLog.length;
+  scrstr += " 3-hour records stored: ";
+
+  for(int i = 10; i < bytesToRead; i++){
+    uint8_t r;
+    EEPROM.get(i, r);
+    scrstr += r;
+    scrstr += " ";
+  }
+
+  Serial.println(scrstr);
+
 
 }
 
@@ -292,28 +313,26 @@ void mainScreen(){
     //if(globalClimate.temp < 100)
     
     String scrstr;
-    scrstr += "T:";
+    scrstr += "t";
     scrstr += (globalClimate.temp < 100)? String(globalClimate.temp).substring(0, 1) : String(globalClimate.temp).substring(0, 2);
     scrstr += ".";
     scrstr += (globalClimate.temp < 100)? String(globalClimate.temp).substring(1, 2) : String(globalClimate.temp).substring(2, 3);
-    scrstr += "C ";
+    scrstr += "(";
+    scrstr += sysSets.holdingTemp;
+    scrstr += ")C ";
 
-    scrstr += "H:";
+    scrstr += "h";
     scrstr += (globalClimate.hmd < 100)? String(globalClimate.hmd).substring(0, 1) : String(globalClimate.hmd).substring(0, 2);
-    scrstr += ".";
-    scrstr += (globalClimate.hmd < 100)? String(globalClimate.hmd).substring(1, 2) : String(globalClimate.hmd).substring(2, 3);
-    scrstr += "%  ";
-    
-    if(sysSets.heater) scrstr += "";  
+    scrstr += "% ";
+
+    //if(sysSets.heater) scrstr += "";  
     
     //lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print(scrstr);
     lcd.setCursor(0, 1);
 
-    scrstr = "Hold ";
-    scrstr += sysSets.holdingTemp; 
-    scrstr += "C at P=";
+    scrstr = "heat power ";
     scrstr += sysSets.heatPower;
     scrstr += "%";
 
@@ -323,20 +342,20 @@ void mainScreen(){
     
     if(!sysSets.vent && !sysSets.heater){
       uint8_t m = (sysSets.longTimer + sysSets.ventPeriod) - sysSets.uptimeMins;
-      scrstr = "Vent on > ";
+      scrstr = "vent on ~ ";
       scrstr += m;
       scrstr += "min  ";
       lcd.print(scrstr);
 
     } else if (sysSets.vent && !sysSets.heater){
       uint8_t m = (sysSets.longTimer + sysSets.ventDuration) - sysSets.uptimeMins;
-      scrstr = "Vent off > ";
+      scrstr = "vent off ~ ";
       scrstr += m;
       scrstr += "min  ";
       lcd.print(scrstr);
 
     } else if (sysSets.heater){
-      scrstr = "Heating...  ";
+      scrstr = "Heating...        ";
       lcd.print(scrstr);
     }
 
@@ -348,8 +367,12 @@ void mainScreen(){
     scrstr += (sysSets.hour < 10)? "0" : "";
     scrstr += sysSets.hour;
     scrstr += ":";
-    scrstr += (sysSets.hour < 10)? "0" : "";
+    scrstr += (sysSets.min < 10)? "0" : "";
     scrstr += sysSets.min;
+
+    scrstr += "(";
+    scrstr += sysLog.length;
+    scrstr += ")";
 
     lcd.print(scrstr);
   
@@ -559,6 +582,9 @@ void setup()
   EEPROM.get(9, sysLog.length);
   sysSets.uptimeMins = (sysLog.length * 180) + (sysLog.month * 43200);
 
+  delay(1000);
+  logToSerial();
+
 }
 
 void loop()
@@ -570,7 +596,11 @@ void loop()
   watchPowerTriggers();
   sysClock();
 
-  
+
+  /* if(Serial.available() > 0){
+    String command = Serial.readString();
+    if(command == "log") logToSerial();
+  } */
 
   if(millis() - sysSets.probeTimer > 2000){
     sysSets.probeTimer = millis();
