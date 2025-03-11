@@ -52,6 +52,7 @@ struct SysLog{
   uint8_t month = 0;
   uint8_t length = 0;
   uint8_t threeHourPower = 0;
+  int pwr;
   
 } sysLog;
 
@@ -119,7 +120,10 @@ void watchPowerTriggers(){
   
   //вентилятор просто вкл/выкл
   if(sysSets.vent) digitalWrite(8, HIGH);
-  else digitalWrite(8, LOW);
+  else {
+    delay(50);
+    digitalWrite(8, LOW);
+  }
 
 }
 
@@ -180,6 +184,9 @@ void sysLogger(){
 
   //раз в 2 часа средние показания записываются
   if(sysSets.hour - sysSets.hourTimer == 2){
+
+    //kwtH * 3h = threeHourPower / 60 
+    sysLog.threeHourPower = sysLog.pwr / 100;
     
     sysSets.hourTimer = sysSets.hour;
 
@@ -242,7 +249,8 @@ void sysClock(){
     sysSets.hour = sysSets.hour - (24 * sysSets.day);
 
     //подсчет средних затрат ээ
-    if(sysSets.heater) sysLog.threeHourPower = (sysLog.threeHourPower + sysSets.heatPower) / sysSets.uptimeMins;
+    //if(sysSets.heater) sysLog.threeHourPower = (sysLog.threeHourPower + sysSets.heatPower) / sysSets.uptimeMins;
+    if(sysSets.heater) sysLog.pwr += sysSets.heatPower;
 
   }
 
