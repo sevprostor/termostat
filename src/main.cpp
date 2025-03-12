@@ -25,7 +25,7 @@ struct SysSets
   uint16_t climate = 0;
   bool menuRunning = 0;
   uint8_t holdingTemp = 0;
-  uint8_t ventDuration = 0;
+  uint8_t fanDuration = 0;
   uint8_t ventPeriod = 0;
   uint8_t heatPower = 100;
   uint8_t tempDelta = 10;
@@ -34,13 +34,15 @@ struct SysSets
   uint32_t screenTimer = 0;
   uint32_t ledTimer = 0;
   uint32_t dimmerTimer = 0;
-  
+  uint32_t fanDurTimer = 0;
+  uint32_t threeHourTimer = 0;
+
   uint32_t clockTimer = 0;
   uint32_t uptimeMins = 0;
-  uint8_t longTimer = 0;
-  uint8_t hourTimer = 0;
-  uint8_t min = 0;
-  uint8_t hour = 0;
+  uint32_t longTimer = 0;
+  uint32_t hourTimer = 0;
+  uint32_t min = 0;
+  uint32_t hour = 0;
   int day = 0;
 
   bool heater = 0;
@@ -151,13 +153,17 @@ void controlHeater(){
 }
 
 void controlVent(){
+
+  uint32_t fandur = sysSets.fanDuration * 1000;
+  uint32_t fp = sysSets.ventPeriod;
   
-  if(!sysSets.vent && sysSets.uptimeMins - sysSets.longTimer == sysSets.ventPeriod){
-    
+  if(!sysSets.vent && sysSets.uptimeMins - sysSets.longTimer >= fp){
+      
     sysSets.longTimer = sysSets.uptimeMins;
+    sysSets.fanDurTimer = millis();
     sysSets.vent = 1;
   
-  } else if(!sysSets.heater && sysSets.vent && sysSets.uptimeMins - sysSets.longTimer == sysSets.ventDuration){
+  } else if(!sysSets.heater && sysSets.vent && millis() - sysSets.fanDurTimer  > fandur){
 
     sysSets.vent = 0;
     sysSets.longTimer = sysSets.uptimeMins;
@@ -184,13 +190,14 @@ Climate getClimate()
 
 void sysLogger(){
 
-  //раз в 2 часа средние показания записываются
-  if(sysSets.hour - sysSets.hourTimer == 2){
+  //раз в 3 часа средние показания записываются
+  if(sysSets.uptimeMins - sysSets.threeHourTimer == 180){
 
     //kwtH * 3h = threeHourPower / 60 
+    //Именно так! Иначе не лезет целым числом в 1 байт
     sysLog.threeHourPower = sysLog.pwr / 100;
     
-    sysSets.hourTimer = sysSets.hour;
+    sysSets.threeHourTimer = sysSets.uptimeMins;
 
     //30 дней, 8 записей в день
     if(sysLog.length == 240){
@@ -295,15 +302,17 @@ int menuPageSetup(MenuPage page)
   for (uint8_t i = 0; i < 3; i++)
   {
     lcd.setCursor(0, i);
-    if (page.txt.length() < i * 19)
+    if (page.txt.length() < i * 20)
       break;
-    lcd.print(page.txt.substring(i * 19, (i * 20) + 19));
+    lcd.print(page.txt.substring((i * 21), (i * 21) + 20));
   }
 
   //ограничение настройки
   sysSets.menuEditVal = (sysSets.menuEditVal > page.initialV[2]) ? page.initialV[2] : sysSets.menuEditVal;
   sysSets.menuEditVal = (sysSets.menuEditVal < page.initialV[0]) ? page.initialV[0] : sysSets.menuEditVal;
 
+  lcd.setCursor(0, 3);
+  lcd.print("~");
   lcd.print(sysSets.menuEditVal);
   lcd.setCursor(12, 3); // столбец, строка
   lcd.print("[<][Ok]");
@@ -316,7 +325,7 @@ void mainScreen(){
 
   if(millis() - sysSets.ledTimer > 300000) lcd.noBacklight();
   
-  if(millis() - sysSets.screenTimer > 2000){
+  if(millis() - sysSets.screenTimer > 1000){
     
     sysSets.screenTimer = millis();
 
@@ -327,9 +336,9 @@ void mainScreen(){
     scrstr += (globalClimate.temp < 100)? String(globalClimate.temp).substring(0, 1) : String(globalClimate.temp).substring(0, 2);
     scrstr += ".";
     scrstr += (globalClimate.temp < 100)? String(globalClimate.temp).substring(1, 2) : String(globalClimate.temp).substring(2, 3);
-    scrstr += "(";
+    scrstr += "/";
     scrstr += sysSets.holdingTemp;
-    scrstr += ")C ";
+    scrstr += "C ";
 
     scrstr += "h";
     scrstr += (globalClimate.hmd < 100)? String(globalClimate.hmd).substring(0, 1) : String(globalClimate.hmd).substring(0, 2);
@@ -352,16 +361,16 @@ void mainScreen(){
     
     if(!sysSets.vent && !sysSets.heater){
       uint8_t m = (sysSets.longTimer + sysSets.ventPeriod) - sysSets.uptimeMins;
-      scrstr = "vent on ~ ";
+      scrstr = "fan up ~ ";
       scrstr += m;
       scrstr += "min  ";
       lcd.print(scrstr);
 
     } else if (sysSets.vent && !sysSets.heater){
-      uint8_t m = (sysSets.longTimer + sysSets.ventDuration) - sysSets.uptimeMins;
-      scrstr = "vent off ~ ";
+      uint8_t m = ((sysSets.fanDurTimer + sysSets.fanDuration * 1000) - millis()) / 1000;
+      scrstr = "fan down ~ ";
       scrstr += m;
-      scrstr += "min  ";
+      scrstr += "sec  ";
       lcd.print(scrstr);
 
     } else if (sysSets.heater){
@@ -370,10 +379,10 @@ void mainScreen(){
     }
 
     lcd.setCursor(0, 3);
-    scrstr = "log: ";
+    scrstr = "log ";
    
     scrstr += sysSets.day;
-    scrstr += " ";
+    scrstr += "d ";
     scrstr += (sysSets.hour < 10)? "0" : "";
     scrstr += sysSets.hour;
     scrstr += ":";
@@ -409,13 +418,13 @@ int menuList(String *menu, int cnt){
   if (buttBack.pressed()){
     sysSets.inmenu = 0;
     lcd.clear();
+    sysSets.menuItem = 0;
     return output;
   }
   if (buttOk.pressed()){
     lcd.clear();
     output = sysSets.menuItem;
-    sysSets.menuItem = 0;
-    Serial.println(output + 10);
+    //sysSets.menuItem = 0;
     return output + 10; // сохранить результат
   }
 
@@ -428,7 +437,7 @@ int menuList(String *menu, int cnt){
 
   // с какого места показывать меню
   lcd.setCursor(0, 0); // столбец, строка для курсора
-  lcd.print(">");
+  lcd.print("~");
   for (int i = 0; i < 4; i++)
   {
     lcd.setCursor(1, i); // столбец, строка
@@ -460,7 +469,7 @@ void GUIBase(){
 
   } else if (sysSets.inmenu == 1){
     // главное меню - лист пунктов
-    String menu[] = {"Temp", "Heater power", "Temp delta", "Vent duration", "Vent period"};
+    String menu[] = {"Temp", "Heater power", "Temp delta", "Fan up duration", "Blow period"};
     int cnt = sizeof(menu) / sizeof(menu[0]);
     int enteredMenu = menuList(menu, cnt);
     if (enteredMenu != -1)
@@ -470,7 +479,7 @@ void GUIBase(){
   
     // Температура - страница сетапа
     MenuPage temp;
-    temp.txt = "Set temp to carry";
+    temp.txt = "Set temp to hold(C)";
     temp.nextInmenu = 0;
     temp.prevInmenu = 1;
     temp.initialV[0] = 0;
@@ -487,7 +496,7 @@ void GUIBase(){
   {
     // Длит вентилятора
     MenuPage temp;
-    temp.txt = "Power of heating (%)";
+    temp.txt = "Power of heating(%)";
     temp.nextInmenu = 1;
     temp.prevInmenu = 1;
     temp.initialV[0] = 5;
@@ -504,7 +513,7 @@ void GUIBase(){
   {
     // Длит вентилятора
     MenuPage temp;
-    temp.txt = "Temperature delta, C (x0.1)";
+    temp.txt = "Temperature delta, C(x0.1)";
     temp.nextInmenu = 1;
     temp.prevInmenu = 1;
     temp.initialV[0] = 1;
@@ -522,24 +531,24 @@ void GUIBase(){
   {
     // Длит вентилятора
     MenuPage temp;
-    temp.txt = "Duration of periodic ventilations (min)";
+    temp.txt = "Fan up duration(sec)";
     temp.nextInmenu = 1;
     temp.prevInmenu = 1;
     temp.initialV[0] = 0;
-    temp.initialV[1] = sysSets.ventDuration;
-    temp.initialV[2] = 60;
+    temp.initialV[1] = sysSets.fanDuration;
+    temp.initialV[2] = 180;
     int settedVal = menuPageSetup(temp);
     
     if (settedVal != -1){
-      sysSets.ventDuration = settedVal;
-      EEPROM.write(3, sysSets.ventDuration);  
+      sysSets.fanDuration = settedVal;
+      EEPROM.write(3, sysSets.fanDuration);  
     }
   }
   else if (sysSets.inmenu == 14)
   {
     // Период вентилятора
     MenuPage temp;
-    temp.txt = "Period of regular ventilations (min)";
+    temp.txt = "Period of blowings(min)";
     temp.nextInmenu = 1;
     temp.prevInmenu = 1;
     temp.initialV[0] = 0;
@@ -598,7 +607,7 @@ void setup()
   sysSets.holdingTemp = EEPROM.read(0);
   sysSets.heatPower = EEPROM.read(1);
   sysSets.tempDelta = EEPROM.read(2);
-  sysSets.ventDuration = EEPROM.read(3);
+  sysSets.fanDuration = EEPROM.read(3);
   sysSets.ventPeriod = EEPROM.read(4);
 
   //загрузка отработанного времени
@@ -617,13 +626,12 @@ void setup()
 
 void loop()
 {
-  // readKeyboard();
-  // Serial.println(sysSets.inmenu);
-
+  
+  sysClock();
   GUIBase();
   watchPowerTriggers();
-  sysClock();
-
+  sysLogger();
+  
 
   /* if(Serial.available() > 0){
     String command = Serial.readString();
@@ -634,5 +642,5 @@ void loop()
     sysSets.probeTimer = millis();
     globalClimate = getClimate();
   }
-  // выводим температуру (t) и влажность (h) на монитор порта
+
 }
