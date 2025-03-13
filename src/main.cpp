@@ -618,6 +618,7 @@ void setup()
   sysLog.month = EEPROM.read(8);
   sysLog.length = EEPROM.read(9);
   sysSets.uptimeMins = (sysLog.length * 180) + (sysLog.month * 43200);
+  sysSets.threeHourTimer = sysSets.uptimeMins;
 
   delay(1000);
   logToSerial();
